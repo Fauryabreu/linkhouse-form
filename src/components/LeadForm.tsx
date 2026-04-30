@@ -121,31 +121,47 @@ export default function LeadForm() {
   const progressStep = screen === 'questions' ? currentQuestion + 1 : totalSteps;
   const progress = (progressStep / totalSteps) * 100;
 
+  const calculateScore = (currentAnswers: Record<string, string>): number => {
+    let total = 0;
+    QUESTIONS.forEach((q) => {
+      const selected = q.options.find((o) => o.value === currentAnswers[q.id]);
+      if (selected && !selected.disqualify) total += selected.points;
+    });
+    return total;
+  };
+
   const handleOptionSelect = (questionId: string, option: Option) => {
     if (selectedOption !== null) return;
 
     setSelectedOption(option.value);
-    setAnswers((prev) => ({ ...prev, [questionId]: option.value }));
+    const newAnswers = { ...answers, [questionId]: option.value };
+    setAnswers(newAnswers);
 
+    const willDisqualify = disqualified || !!option.disqualify;
     if (option.disqualify) setDisqualified(true);
 
     setTimeout(() => {
       setSelectedOption(null);
+
       if (currentQuestion < QUESTIONS.length - 1) {
         setCurrentQuestion((prev) => prev + 1);
-      } else {
+        return;
+      }
+
+      // Last question — evaluate immediately
+      if (willDisqualify) {
+        setScreen('disqualified');
+        return;
+      }
+
+      const finalScore = calculateScore(newAnswers);
+      if (finalScore >= SCORE_THRESHOLD) {
+        setScore(finalScore);
         setScreen('contact');
+      } else {
+        setScreen('disqualified');
       }
     }, 350);
-  };
-
-  const calculateScore = (): number => {
-    let total = 0;
-    QUESTIONS.forEach((q) => {
-      const selected = q.options.find((o) => o.value === answers[q.id]);
-      if (selected && !selected.disqualify) total += selected.points;
-    });
-    return total;
   };
 
   const firePixel = (finalScore: number) => {
@@ -156,6 +172,13 @@ export default function LeadForm() {
       source: 'meta_ads',
       form_name: 'linkhouse-offshore-prueba',
     });
+  };
+
+  const getCookie = (name: string): string | undefined => {
+    return document.cookie
+      .split('; ')
+      .find((row) => row.startsWith(`${name}=`))
+      ?.split('=')[1];
   };
 
   const callCAPI = async (finalScore: number) => {
@@ -170,6 +193,8 @@ export default function LeadForm() {
           objetivo: answers['objetivo'],
           nombre: contactData.nombre,
           nacionalidad: contactData.nacionalidad,
+          fbc: getCookie('_fbc'),
+          fbp: getCookie('_fbp'),
         }),
       });
     } catch {
@@ -180,24 +205,9 @@ export default function LeadForm() {
   const handleContactSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-
-    if (disqualified) {
-      setScreen('disqualified');
-      setIsLoading(false);
-      return;
-    }
-
-    const finalScore = calculateScore();
-    setScore(finalScore);
-
-    if (finalScore >= SCORE_THRESHOLD) {
-      firePixel(finalScore);
-      await callCAPI(finalScore);
-      setScreen('qualified');
-    } else {
-      setScreen('disqualified');
-    }
-
+    firePixel(score);
+    await callCAPI(score);
+    setScreen('qualified');
     setIsLoading(false);
   };
 

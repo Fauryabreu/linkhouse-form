@@ -10,13 +10,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { email, phone, score, objetivo, nombre, nacionalidad } = req.body as {
+  const { email, phone, score, objetivo, nombre, nacionalidad, fbc, fbp } = req.body as {
     email: string;
     phone: string;
     score: number;
     objetivo: string;
     nombre: string;
     nacionalidad: string;
+    fbc?: string;
+    fbp?: string;
   };
 
   const pixelId = process.env.META_PIXEL_ID;
@@ -26,7 +28,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(500).json({ error: 'Missing META_PIXEL_ID or META_CAPI_TOKEN env vars' });
   }
 
+  const clientIp =
+    (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() ??
+    req.socket.remoteAddress ??
+    '';
+
+  const clientUserAgent = (req.headers['user-agent'] as string) ?? '';
+
   const eventId = randomUUID();
+
+  const userData: Record<string, unknown> = {
+    em: [sha256(email ?? '')],
+    ph: [sha256((phone ?? '').replace(/\D/g, ''))],
+    client_ip_address: clientIp,
+    client_user_agent: clientUserAgent,
+  };
+
+  if (fbc) userData['fbc'] = fbc;
+  if (fbp) userData['fbp'] = fbp;
 
   const payload = {
     data: [
@@ -35,10 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         event_time: Math.floor(Date.now() / 1000),
         event_id: eventId,
         action_source: 'website',
-        user_data: {
-          em: [sha256(email ?? '')],
-          ph: [sha256((phone ?? '').replace(/\D/g, ''))],
-        },
+        user_data: userData,
         custom_data: {
           lead_status: 'qualified',
           lead_score: score,
